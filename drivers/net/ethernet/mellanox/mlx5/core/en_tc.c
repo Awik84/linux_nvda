@@ -4943,7 +4943,7 @@ static void destory_tc_prio(struct mlx5_tc_chains_offload *offload, struct tc_pr
 {
 	struct tc_chain *tc_chain = tc_prio->tc_chain;
 	struct list_head *next = tc_prio->list.next;
-	//printk(KERN_ERR "%s %d %s @@ "prio_fmt"\n", __FILE__, __LINE__, __func__, prio_print(tc_prio));
+	printk(KERN_ERR "%s %d %s @@ "prio_fmt"\n", __FILE__, __LINE__, __func__, prio_print(tc_prio));
 
 	if (!tc_prio->level) {
 		struct mlx5_flow_destination dest = {};
@@ -4991,10 +4991,12 @@ static void destory_tc_prio(struct mlx5_tc_chains_offload *offload, struct tc_pr
 			list_for_each_entry_continue_reverse(pos,
 						             &tc_chain->prios_list,
 							     list) {
+				struct tc_prio *n = list_entry(tc_prio->list.next, struct tc_prio, list);
+
 				if (pos->level)
 					continue;
 
-				//printk(KERN_ERR "%s %d %s @@ "prio_fmt" updating miss to -> "prio_fmt")\n", __FILE__, __LINE__, __func__, prio_print(pos));
+				printk(KERN_ERR "%s %d %s @@ "prio_fmt" updating miss to -> "prio_fmt")\n", __FILE__, __LINE__, __func__, prio_print(pos), prio_print(n));
 
 				memset(&act, 0, sizeof(act));
 				act.action = MLX5_FLOW_CONTEXT_ACTION_FWD_DEST;
@@ -5006,7 +5008,8 @@ static void destory_tc_prio(struct mlx5_tc_chains_offload *offload, struct tc_pr
 								&dest, 1);
 				if (IS_ERR(miss_rule)) {
 					int err = PTR_ERR(miss_rule);
-					printk(KERN_ERR "%s %d %s @@ "prio_fmt" error adding miss rule %d\n", __FILE__, __LINE__, __func__, prio_print(pos), err);
+					printk(KERN_ERR "%s %d %s @@ "prio_fmt" error adding miss rule %d ft %px to next_ft %px\n",
+					       __FILE__, __LINE__, __func__, prio_print(pos), err, pos->ft, dest.ft);
 					break;
 				}
 
@@ -5036,7 +5039,7 @@ static void destory_tc_prio(struct mlx5_tc_chains_offload *offload, struct tc_pr
 		//printk(KERN_ERR "%s %d %s @@ "prio_fmt" deleting miss group ft %px\n", __FILE__, __LINE__, __func__, prio_print(tc_prio), tc_prio->ft);
 		mlx5_destroy_flow_group(tc_prio->miss_group);
 	}
-	//printk(KERN_ERR "%s %d %s @@ "prio_fmt" deleting ft: %px, is_empty? %d\n", __FILE__, __LINE__, __func__, prio_print(tc_prio), tc_prio->ft, list_empty(&tc_prio->ft->fwd_rules));
+	printk(KERN_ERR "%s %d %s @@ "prio_fmt" deleting ft: %px, is_empty? %d\n", __FILE__, __LINE__, __func__, prio_print(tc_prio), tc_prio->ft, list_empty(&tc_prio->ft->fwd_rules));
 	mlx5_destroy_flow_table(tc_prio->ft);
 
 	//printk(KERN_ERR "%s %d %s @@ "prio_fmt" put chain\n", __FILE__, __LINE__, __func__, prio_print(tc_prio));

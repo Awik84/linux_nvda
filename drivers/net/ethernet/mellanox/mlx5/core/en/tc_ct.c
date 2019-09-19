@@ -564,7 +564,7 @@ static int ct_flow_insert(struct mlx5e_ct_control *control,
 	if (entry->flows++ == 0) {
 		set_bit(!entry->dir_reply ? IPS_OFFLOAD_ORIG_BIT : IPS_OFFLOAD_REPLY_BIT,
 			&ct->status);
-		if (test_bit(IPS_OFFLOAD_ORIG_BIT, &ct->status) ||
+		if (test_bit(IPS_OFFLOAD_ORIG_BIT, &ct->status) &&
 		    test_bit(IPS_OFFLOAD_REPLY_BIT, &ct->status))
 			set_bit(IPS_OFFLOAD_BIT, &ct->status);
 		flow_offload_fixup_ct_state(ct, true);
@@ -619,7 +619,7 @@ static bool ct_flow_delete(struct mlx5e_ct_control *control,
 
 		clear_bit(!entry->dir_reply ? IPS_OFFLOAD_ORIG_BIT : IPS_OFFLOAD_REPLY_BIT,
 			  &entry->ct->status);
-		if (!test_bit(IPS_OFFLOAD_ORIG_BIT, &entry->ct->status) &&
+		if (!test_bit(IPS_OFFLOAD_ORIG_BIT, &entry->ct->status) ||
 		    !test_bit(IPS_OFFLOAD_REPLY_BIT, &entry->ct->status))
 			clear_bit(IPS_OFFLOAD_BIT, &entry->ct->status);
 
@@ -654,15 +654,20 @@ static void mlx5e_ct_aging(struct work_struct *work)
 							aging.work);
 	struct ct_entry *entry, *tmpe;
 	unsigned long tend;
+	int c = 0;
 
 	tend = jiffies - msecs_to_jiffies(CT_FLOW_AGING * 1000);
 
 	list_for_each_entry_safe(entry, tmpe, &control->cts, node) {
 		if (time_after(tend, entry->lastuse)) {
-			printk(KERN_ERR "%s %d %s @@ %px, evicting entry %px (flows: %d) \n", __FILE__, __LINE__, __func__, control, entry, entry->flows);
+			c++;
+			//printk(KERN_ERR "%s %d %s @@ %px, evicting entry %px (flows: %d) \n", __FILE__, __LINE__, __func__, control, entry, entry->flows);
 			ct_entry_delete(control, entry);
 		}
 	}
+
+	if (c)
+		mlx5_core_err(control->priv->mdev, "aging evicted %d entries\n", c);
 
 	queue_delayed_work(control->wq, &control->aging,
 			   msecs_to_jiffies(CT_FLOW_AGING_STEP * 1000));
@@ -684,6 +689,7 @@ static void mlx5e_configure_ct_work(struct work_struct *works)
 	struct mlx5e_tc_flow *flow;
 	struct hlist_node *tmp;
 	struct ct_entry *entry;
+	int c = 0;
 	u32 hash_key;
 
 	rtnl_lock();
@@ -695,6 +701,7 @@ static void mlx5e_configure_ct_work(struct work_struct *works)
 
 		list_for_each_entry(entry, &control->cts, node) {
 			if (entry->ct == ct) {
+				mlx5_core_err(work->priv->mdev, "work->del set, deleting dir_reply %d\n", entry->dir_reply);
 				ct_entry_delete(control, entry);
 				break;
 			}
@@ -728,8 +735,12 @@ static void mlx5e_configure_ct_work(struct work_struct *works)
 			ct_flow_insert(control, entry, flow, !dir_reply ?
 							     IP_CT_DIR_ORIGINAL :
 							     IP_CT_DIR_REPLY);
+			c++;
 		}
 	}
+
+	if (c > 1)
+		mlx5_core_err(control->priv->mdev, "ct_work: %d flows offloaded\n", c);
 
 	if (!entry->flows) {
 		printct(ct, "no flows offloaded");
@@ -842,6 +853,7 @@ int mlx5e_ct_flow_offload(struct mlx5e_tc_flow *flow)
 	struct mlx5e_ct_control *control = get_control(flow->priv);
 	struct mlx5_flow_attr *attr = &flow->attr;
 	struct ct_entry *entry;
+	int c = 0;
 
 	if (mlx5e_is_eswitch_flow(flow) && 
 	    !mlx5_eswitch_vport_match_metadata_enabled(control->esw))
@@ -850,11 +862,17 @@ int mlx5e_ct_flow_offload(struct mlx5e_tc_flow *flow)
 	/* Why we adding it right away in this case? */
 	list_for_each_entry(entry, &control->cts, node) {
 		if (entry->zone_id == attr->zone) {
-			ct_flow_insert(control, entry, flow, IP_CT_DIR_ORIGINAL);
-			ct_flow_insert(control, entry, flow, IP_CT_DIR_REPLY);
+			//ct_flow_insert(control, entry, flow, IP_CT_DIR_ORIGINAL);
+			//ct_flow_insert(control, entry, flow, IP_CT_DIR_REPLY);
+			ct_flow_insert(control, entry, flow, !entry->dir_reply ?
+							     IP_CT_DIR_ORIGINAL :
+							     IP_CT_DIR_REPLY);
+			c++;
 		}
 	}
 
+	if (c > 1)
+		mlx5_core_err(control->priv->mdev, "ct_work: %d flows offloaded in fast mode\n", c);
 	hash_add(control->ct_flows, &flow->ct_node, (u32) attr->zone);
 
 	//printk(KERN_ERR "%s %d %s @@ offloaded tc flow: %px\n", __FILE__, __LINE__, __func__, flow);
