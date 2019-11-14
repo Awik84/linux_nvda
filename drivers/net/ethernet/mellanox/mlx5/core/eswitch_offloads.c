@@ -1000,14 +1000,9 @@ static int esw_create_offloads_fdb_tables(struct mlx5_eswitch *esw, int nvports)
 
 	esw_debug(esw->dev, "Create offloads FDB Tables\n");
 
-	err = init_tc_chains_offload(esw->dev, fdb_chains,
-				     fdb_create_next_size_table);
-	if (err)
-		return err;
-
 	flow_group_in = kvzalloc(inlen, GFP_KERNEL);
 	if (!flow_group_in)
-		goto alloc_err;
+		return -ENOMEM;
 
 	root_ns = mlx5_get_flow_namespace(dev, MLX5_FLOW_NAMESPACE_FDB);
 	if (!root_ns) {
@@ -1189,8 +1184,6 @@ fast_fdb_err:
 slow_fdb_err:
 ns_err:
 	kvfree(flow_group_in);
-alloc_err:
-	destroy_tc_chains_offload(fdb_chains);
 	return err;
 }
 
@@ -1212,8 +1205,6 @@ static void esw_destroy_offloads_fdb_tables(struct mlx5_eswitch *esw)
 		mlx5_tc_chain_put_prio_table(fdb_chains, 0, 1, 1);
 	mlx5_tc_chain_put_prio_table(fdb_chains, 0, 1, 0);
 	mlx5_destroy_flow_table(esw->fdb_table.offloads.slow_fdb);
-
-	destroy_tc_chains_offload(&esw->fdb_table.offloads.fdb_chains);
 }
 
 static int esw_create_offloads_table(struct mlx5_eswitch *esw, int nvports)
@@ -1995,9 +1986,14 @@ static int esw_offloads_steering_init(struct mlx5_eswitch *esw)
 
 	memset(&esw->fdb_table.offloads, 0, sizeof(struct offloads_fdb));
 
-	err = esw_create_offloads_acl_tables(esw);
+	err = init_tc_chains_offload(esw->dev, fdb_chains,
+				     fdb_create_next_size_table);
 	if (err)
 		return err;
+
+	err = esw_create_offloads_acl_tables(esw);
+	if (err)
+		goto create_offloads_acl_err;
 
 	err = esw_create_offloads_table(esw, total_vports);
 	if (err)
@@ -2026,6 +2022,8 @@ create_restore_err:
 	esw_destroy_offloads_table(esw);
 create_offloads_err:
 	esw_destroy_offloads_acl_tables(esw);
+create_offloads_acl_err:
+	destroy_tc_chains_offload(fdb_chains);
 
 	return err;
 }
@@ -2039,6 +2037,7 @@ static void esw_offloads_steering_cleanup(struct mlx5_eswitch *esw)
 	mlx5_destroy_restore_table(fdb_chains);
 	esw_destroy_offloads_table(esw);
 	esw_destroy_offloads_acl_tables(esw);
+	destroy_tc_chains_offload(fdb_chains);
 }
 
 static void
